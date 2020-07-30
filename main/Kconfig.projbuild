@@ -1,13 +1,27 @@
 menu "Led Wall Decor project"
+    config ESP_WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            SSID (network name) for the example to connect to.
+    config ESP_WIFI_PASSWORD
+        string "WiFi Password"
+        default "mypassword"
+        help
+            WiFi password (WPA or WPA2) for the example to use.
+    config BACKEND_ACCESS_TOKEN
+        string "Access Token"
+        default "not_set"
+        help
+            Access Token to https://github.com/jakkra/OneBackendToRuleThemAll
     config RMT_TX_GPIO
         int "RMT TX GPIO"
         default 16
         help
             Set the GPIO number used for transmitting the RMT signal.
-
     config STRIP_LED_NUMBER
         int "Number of LEDS in a strip"
         default 149
         help
-            A single RGB strip contains several LEDs.
+            Number of leds in your strip
 endmenu
