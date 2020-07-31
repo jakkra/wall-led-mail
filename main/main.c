@@ -28,7 +28,7 @@ static const char *TAG = "strip";
 
 // Max 5 leds at max power 255
 #define POWER_BUDGET_MAIL_LED(_num_unread) (fmin((5 * 255) / _num_unread, 170))
-
+#define MAX_BRIGHTNESS  100
 
 static void init_led_strip(void);
 static void init_wifi(void);
@@ -39,6 +39,7 @@ static httpd_handle_t start_webserver(void);
 static esp_err_t wled_request_handler(httpd_req_t *req);
 static void run_new_mail_animation(void);
 static void run_mail_read_animation(void);
+void set_pixel(led_strip_t *strip, uint32_t index, uint32_t red, uint32_t green, uint32_t blue, uint32_t brightness);
 
 static void http_client_task(void *args);
 
@@ -49,7 +50,7 @@ static uint32_t num_unread_email = 0;
 static uint32_t prev_num_unread_email = 0;
 static bool leds_on = true;
 
-uint32_t r = 50, g = 50, b = 50, a = 0;
+uint32_t r = 255, g = 255, b = 255, a = 50;
 
 static const httpd_uri_t wled = {
     .uri       = "/win*",
@@ -125,20 +126,20 @@ static void run_new_mail_animation()
             // Don't touch mail leds
         } else {
             if (i > 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i - 1, 255, 0, 0));
+                set_pixel(strip, i - 1, 255, 0, 0, 255);
             }
             if (i < CONFIG_STRIP_LED_NUMBER - num_unread_email - 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i + 1, 255, 0, 0));
+                set_pixel(strip, i + 1, 255, 0, 0, 255);
             }
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, 255, 0, 0));
+            set_pixel(strip, i, 255, 0, 0, 255);
             ESP_ERROR_CHECK(strip->refresh(strip, 100));
             vTaskDelay(pdMS_TO_TICKS(1));
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, r, g, b));
+            set_pixel(strip, i, r, g, b, a);
              if (i > 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i - 1, r, g, b));
+                set_pixel(strip, i - 1, r, g, b, a);
             }
             if (i < CONFIG_STRIP_LED_NUMBER - num_unread_email - 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i + 1, r, g, b));
+                set_pixel(strip, i + 1, r, g, b, a);
             }
         }
     }
@@ -151,20 +152,20 @@ static void run_mail_read_animation()
             // Don't touch mail leds
         } else {
             if (i > 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i - 1, 255, 0, 0));
+                set_pixel(strip, i - 1, 255, 0, 0, 255);
             }
             if (i < CONFIG_STRIP_LED_NUMBER - num_unread_email - 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i + 1, 255, 0, 0));
+                set_pixel(strip, i + 1, 255, 0, 0, 255);
             }
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, 255, 0, 0));
+            set_pixel(strip, i, 255, 0, 0, 255);
             ESP_ERROR_CHECK(strip->refresh(strip, 100));
             vTaskDelay(pdMS_TO_TICKS(1));
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, r, g, b));
+            set_pixel(strip, i, r, g, b, a);
              if (i > 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i - 1, r, g, b));
+                set_pixel(strip, i - 1, r, g, b, a);
             }
             if (i < CONFIG_STRIP_LED_NUMBER - num_unread_email - 1) {
-                ESP_ERROR_CHECK(strip->set_pixel(strip, i + 1, r, g, b));
+                set_pixel(strip, i + 1, r, g, b, a);
             }
         }
     }
@@ -175,9 +176,9 @@ static void refresh_leds(void)
     if (!leds_on) return;
     for (uint16_t i = 0; i < CONFIG_STRIP_LED_NUMBER; i++) {
         if (i >= CONFIG_STRIP_LED_NUMBER - num_unread_email) {
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, POWER_BUDGET_MAIL_LED(num_unread_email), 0, 0));
+            set_pixel(strip, i, 255, 0, 0, 255);
         } else {
-            ESP_ERROR_CHECK(strip->set_pixel(strip, i, r, g, b));
+            set_pixel(strip, i, r, g, b, a);
         }
     }
     ESP_ERROR_CHECK(strip->refresh(strip, 100));
@@ -198,8 +199,9 @@ static esp_err_t wled_request_handler(httpd_req_t *req)
 {
     char*  buf;
     size_t buf_len;
+    uint32_t temp;
     
-    bool input_ok = true;
+    bool input_ok = false;
     buf_len = httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1) {
         buf = malloc(buf_len);
@@ -221,27 +223,34 @@ static esp_err_t wled_request_handler(httpd_req_t *req)
                 }
             } else {
                 if (httpd_query_key_value(buf, "A", param, sizeof(param)) == ESP_OK) {
-                    a = strtol(param, NULL, 10);
-                    if (a > 256) {
-                        input_ok = false;
+                    temp = strtol(param, NULL, 10);
+                    if (temp < 256) {
+                        if (temp > MAX_BRIGHTNESS) {
+                            temp = MAX_BRIGHTNESS;
+                        }
+                        a = temp;
+                        input_ok = true;
                     }
                 }
                 if (httpd_query_key_value(buf, "R", param, sizeof(param)) == ESP_OK) {
-                    r = strtol(param, NULL, 10);
-                    if (r > 256) {
-                        input_ok = false;
+                    temp = strtol(param, NULL, 10);
+                    if (r < 256) {
+                        r = temp;
+                        input_ok = true;
                     }
                 }
                 if (httpd_query_key_value(buf, "G", param, sizeof(param)) == ESP_OK) {
-                    g = strtol(param, NULL, 10);
-                    if (g > 256) {
-                        input_ok = false;
+                    temp = strtol(param, NULL, 10);
+                    if (g < 256) {
+                        g = temp;
+                        input_ok = true;
                     }
                 }
                 if (httpd_query_key_value(buf, "B", param, sizeof(param)) == ESP_OK) {
-                    b = strtol(param, NULL, 10);
-                    if (b > 256) {
-                        input_ok = false;
+                    temp = strtol(param, NULL, 10);
+                    if (b < 256) {
+                        b = temp;
+                        input_ok = true;
                     }
                 }
 
@@ -298,7 +307,7 @@ static void init_led_strip(void)
 
     ESP_ERROR_CHECK(strip->clear(strip, 100));
     for (uint16_t i = 0; i < CONFIG_STRIP_LED_NUMBER; i++) {
-        ESP_ERROR_CHECK(strip->set_pixel(strip, i, r, g, b));
+        set_pixel(strip, i, r, g, b, a);
     }
     ESP_ERROR_CHECK(strip->refresh(strip, 100));
     ESP_LOGI(TAG, "LED Strip ready");
@@ -364,4 +373,17 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     }
 
     return ESP_OK;
+}
+
+void set_pixel(led_strip_t *strip, uint32_t index, uint32_t red, uint32_t green, uint32_t blue, uint32_t brightness)
+{
+    assert(strip != NULL);
+    assert(index < CONFIG_STRIP_LED_NUMBER);
+    assert(red <= 255);
+    assert(green <= 255);
+    assert(blue <= 255);
+    assert(brightness <= 255);
+
+    float bri_multiplier = (float)brightness / 255;
+    ESP_ERROR_CHECK(strip->set_pixel(strip, index, (float)red * bri_multiplier, (float)green * bri_multiplier, (float)blue * bri_multiplier));
 }
