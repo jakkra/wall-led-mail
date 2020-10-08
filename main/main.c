@@ -195,6 +195,7 @@ static void strip_enable(bool on)
     }
 }
 
+// Very limited subset of https://github.com/Aircoookie/WLED API for easy integration.
 static esp_err_t wled_request_handler(httpd_req_t *req)
 {
     char*  buf;
