@@ -10,6 +10,7 @@
 #include "esp_netif.h"
 #include "esp_http_client.h"
 #include <esp_http_server.h>
+#include <sys/param.h>
 
 #include "string.h"
 #include "lwip/err.h"
@@ -25,6 +26,7 @@ static const char *TAG = "strip";
 #define RMT_TX_CHANNEL RMT_CHANNEL_0
 
 #define MAX_HTTP_RSP_LEN 128
+#define MAX_HTTP_REQ_LEN 128
 
 // Max 5 leds at max power 255
 #define POWER_BUDGET_MAIL_LED(_num_unread) (fmin((5 * 255) / _num_unread, 170))
@@ -37,6 +39,8 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt);
 static void refresh_leds(void);
 static httpd_handle_t start_webserver(void);
 static esp_err_t wled_request_handler(httpd_req_t *req);
+static esp_err_t home_assistant_get_request_handler(httpd_req_t *req);
+static esp_err_t home_assistant_post_request_handler(httpd_req_t *req);
 static void run_new_mail_animation(void);
 static void run_mail_read_animation(void);
 void set_pixel(led_strip_t *strip, uint32_t index, uint32_t red, uint32_t green, uint32_t blue, uint32_t brightness);
@@ -56,6 +60,18 @@ static const httpd_uri_t wled = {
     .uri       = "/win*",
     .method    = HTTP_GET,
     .handler   = wled_request_handler,
+};
+
+static const httpd_uri_t home_assistant_get = {
+    .uri       = "/ha",
+    .method    = HTTP_GET,
+    .handler   = home_assistant_get_request_handler,
+};
+
+static const httpd_uri_t home_assistant_post = {
+    .uri       = "/ha",
+    .method    = HTTP_POST,
+    .handler   = home_assistant_post_request_handler,
 };
 
 void app_main(void)
@@ -273,6 +289,66 @@ static esp_err_t wled_request_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t home_assistant_get_request_handler(httpd_req_t *req)
+{
+    char*  buf;
+    size_t buf_len;
+    char resp[MAX_HTTP_RSP_LEN];
+    
+    buf_len = httpd_req_get_url_query_len(req) + 1;
+    if (buf_len > 1) {
+        buf = malloc(buf_len);
+        assert(buf != NULL);
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            ESP_LOGI(TAG, "Found URL query => %s", buf);
+        }
+        free(buf);
+    }
+    
+    snprintf(resp, sizeof(resp), "{\"is_active\": \"%s\"}", leds_on ? "true": "false");
+    httpd_resp_send(req, resp, strlen(resp));
+
+    return ESP_OK;
+}
+
+static esp_err_t home_assistant_post_request_handler(httpd_req_t *req)
+{
+    char content[MAX_HTTP_REQ_LEN];
+    char resp[MAX_HTTP_RSP_LEN];
+    esp_err_t err = ESP_OK;
+
+    size_t recv_size = MIN(req->content_len, sizeof(content));
+
+    int ret = httpd_req_recv(req, content, recv_size);
+    if (ret <= 0) {
+        if (ret == HTTPD_SOCK_ERR_TIMEOUT) {
+            httpd_resp_send_408(req);
+        }
+        return ESP_FAIL;
+    }
+    
+    if (content[0] == '0') {
+        ESP_LOGI(TAG, "TURN OFF");
+        strip_enable(false);
+    } else if (content[0] == '1') {
+        ESP_LOGI(TAG, "TURN ON");
+        strip_enable(true);
+    } else {
+        content[recv_size] = '\0';
+        ESP_LOGI(TAG, "ERROR POST content: %s", content);
+        err = ESP_FAIL;
+    }
+
+    if (err == ESP_OK) {
+        snprintf(resp, sizeof(resp), "{\"is_active\": \"%s\"}", leds_on ? "true": "false");
+        httpd_resp_send(req, resp, strlen(resp));
+    } else {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid params");
+    }
+
+    return ESP_OK;
+}
+
 static httpd_handle_t start_webserver(void)
 {
     httpd_handle_t server = NULL;
@@ -283,6 +359,8 @@ static httpd_handle_t start_webserver(void)
     if (httpd_start(&server, &config) == ESP_OK) {
         ESP_LOGI(TAG, "Registering URI handlers");
         httpd_register_uri_handler(server, &wled);
+        httpd_register_uri_handler(server, &home_assistant_get);
+        httpd_register_uri_handler(server, &home_assistant_post);
         return server;
     }
 
